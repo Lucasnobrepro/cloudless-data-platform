@@ -1,0 +1,1 @@
+A production-inspired local data platform running on Kubernetes/Minikube with Airflow, Argo CD, Prometheus, FastAPI and Streamlit.
