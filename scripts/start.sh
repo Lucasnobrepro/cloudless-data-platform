@@ -84,6 +84,8 @@ MONITORING_OVERRIDE="$(mktemp)"
 ARGOCD_BIN="$(mktemp)"
 ARGOCD_CONFIG="$(mktemp)"
 PORT_FORWARD_LOG="$(mktemp)"
+AIRFLOW_HELM_LOG="$(mktemp)"
+MONITORING_HELM_LOG="$(mktemp)"
 PORT_FORWARD_PID=""
 
 cleanup() {
@@ -91,9 +93,26 @@ cleanup() {
     kill "${PORT_FORWARD_PID}" 2>/dev/null || true
     wait "${PORT_FORWARD_PID}" 2>/dev/null || true
   fi
-  rm -f "${AIRFLOW_OVERRIDE}" "${MONITORING_OVERRIDE}" "${ARGOCD_BIN}" "${ARGOCD_CONFIG}" "${PORT_FORWARD_LOG}"
+  rm -f "${AIRFLOW_OVERRIDE}" "${MONITORING_OVERRIDE}" "${ARGOCD_BIN}" "${ARGOCD_CONFIG}" \
+    "${PORT_FORWARD_LOG}" "${AIRFLOW_HELM_LOG}" "${MONITORING_HELM_LOG}"
 }
 trap cleanup EXIT
+
+report_helm_failure() {
+  local component="$1"
+  local log_file="$2"
+  printf '%s Helm operation failed. Recent output (configured passwords redacted):\n' "${component}" >&2
+  python3 - "${log_file}" "${AIRFLOW_ADMIN_PASSWORD}" "${GRAFANA_ADMIN_PASSWORD}" "${ARGOCD_ADMIN_PASSWORD}" <<'PY'
+from pathlib import Path
+import sys
+
+lines = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace").splitlines()
+for secret in sys.argv[2:]:
+    if secret:
+        lines = [line.replace(secret, "[REDACTED]") for line in lines]
+print("\n".join(lines[-40:]), file=sys.stderr)
+PY
+}
 
 yaml_quote() {
   python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"
@@ -137,24 +156,63 @@ helm repo add prometheus-community https://prometheus-community.github.io/helm-c
 helm repo update
 
 printf 'Instalando Airflow %s...\n' "${AIRFLOW_CHART_VERSION}"
-helm upgrade --install airflow apache-airflow/airflow \
+if ! helm upgrade --install airflow apache-airflow/airflow \
   --namespace airflow \
   --create-namespace \
   --version "${AIRFLOW_CHART_VERSION}" \
   --values "${ROOT_DIR}/airflow/values.yaml" \
   --values "${AIRFLOW_OVERRIDE}" \
-  --wait \
-  --timeout 20m
+  --timeout 20m >"${AIRFLOW_HELM_LOG}" 2>&1; then
+  report_helm_failure Airflow "${AIRFLOW_HELM_LOG}"
+  exit 1
+fi
+printf 'Airflow Helm hooks completed.\n'
+
+FAILED_MIGRATION_PODS="$(kubectl get pods --namespace airflow -o json | python3 -c '
+import json
+import sys
+
+pods = json.load(sys.stdin)["items"]
+for pod in pods:
+    for status in pod["status"].get("initContainerStatuses", []):
+        if status["name"] != "wait-for-airflow-migrations":
+            continue
+        terminated = status.get("state", {}).get("terminated") or status.get("lastState", {}).get("terminated", {})
+        if terminated.get("exitCode", 0) != 0:
+            print(pod["metadata"]["name"])
+            break
+')"
+while IFS= read -r pod; do
+  [[ -z "${pod}" ]] && continue
+  kubectl delete pod "${pod}" --namespace airflow --wait=false
+done <<<"${FAILED_MIGRATION_PODS}"
+
+kubectl rollout status statefulset/airflow-postgresql \
+  --namespace airflow \
+  --timeout 5m
+kubectl rollout status deployment/airflow-api-server \
+  --namespace airflow \
+  --timeout 10m
+kubectl rollout status deployment/airflow-dag-processor \
+  --namespace airflow \
+  --timeout 10m
+kubectl rollout status statefulset/airflow-scheduler \
+  --namespace airflow \
+  --timeout 10m
 
 printf 'Instalando kube-prometheus-stack %s...\n' "${PROMETHEUS_CHART_VERSION}"
-helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+if ! helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
   --namespace monitoring \
   --create-namespace \
   --version "${PROMETHEUS_CHART_VERSION}" \
   --values "${ROOT_DIR}/monitoring/values.yaml" \
   --values "${MONITORING_OVERRIDE}" \
   --wait \
-  --timeout 20m
+  --timeout 20m >"${MONITORING_HELM_LOG}" 2>&1; then
+  report_helm_failure monitoring "${MONITORING_HELM_LOG}"
+  exit 1
+fi
+printf 'Prometheus and Grafana are ready.\n'
 
 case "$(uname -m)" in
   x86_64) ARGOCD_ARCH="amd64" ;;
