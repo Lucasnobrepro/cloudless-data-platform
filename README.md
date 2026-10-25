@@ -18,14 +18,23 @@ repositório Git. Outras opções, se quiser renomeá-lo antes de compartilhar, 
 ### Fase 1 — infraestrutura local
 
 - Minikube com o driver Docker.
-- Airflow instalado por Helm e um DAG manual que imprime uma mensagem.
-- Argo CD instalado no namespace `argocd`.
-- Prometheus e Grafana instalados pelo chart `kube-prometheus-stack`.
+- Argo CD instalado inicialmente por Helm e depois gerenciado por ele próprio
+  usando o chart oficial e valores versionados neste repositório.
+- Airflow e kube-prometheus-stack gerenciados pelo Argo CD usando charts
+  oficiais e valores versionados neste repositório.
 - Scripts para iniciar e excluir o cluster.
 
-O Airflow e o stack de monitoramento são instalados diretamente por Helm nesta
-primeira etapa. O Argo CD fica disponível para validar a instalação e servir de
-base para mover a gestão dos aplicativos para GitOps.
+O `platform-root` acompanha `argocd/apps` e cria as aplicações `argocd`,
+`airflow` e `monitoring`. Elas sincronizam automaticamente mudanças publicadas
+no branch `main`, fazem autocorreção de alterações manuais no cluster e não
+removem recursos automaticamente. As versões dos charts estão fixadas nas
+declarações das aplicações; editar um `values.yaml` muda configurações, mas não
+atualiza sozinho a versão do chart.
+
+Não é necessário fazer forks do Argo CD, Airflow ou Prometheus. O projeto usa
+os charts oficiais e mantém apenas seus valores e declarações de implantação
+neste repositório. As senhas ficam no `.env` local e o script as grava em
+Secrets do Kubernetes; não as coloque nos `values.yaml` nem no Git.
 
 ### Fase 2 — dados financeiros e aplicação
 
@@ -38,7 +47,8 @@ Sugestão de fluxo:
 4. Streamlit apresenta preços, variações e gráficos.
 5. FastAPI é opcional: vale adicioná-lo se outros clientes precisarem de uma API
    estável; para um dashboard único, Streamlit pode consultar o banco diretamente.
-6. Argo CD passa a sincronizar os manifests do projeto a partir do Git.
+6. Argo CD instala e mantém os componentes do cluster conforme as definições no
+   Git.
 7. Prometheus coleta métricas do cluster e, posteriormente, da aplicação.
 
 Opções de fonte para a fase financeira:
@@ -56,9 +66,10 @@ Git; use Secrets do Kubernetes ou conexões/variáveis do Airflow.
 
 ## Versões de referência
 
-Versões consultadas em **25/10/2026**. Os charts são fixados nos scripts para
-que a instalação seja reproduzível; atualize esses pins deliberadamente após
-validar a compatibilidade.
+Versões consultadas em **25/10/2026**. Os charts são fixados nas declarações das
+aplicações em `argocd/apps/` para que a instalação seja reproduzível; o pin do
+chart do Argo CD também aparece em `scripts/start.sh` para o bootstrap. Atualize
+esses pins deliberadamente após validar a compatibilidade.
 
 | Componente | Versão usada |
 |---|---:|
@@ -67,7 +78,7 @@ validar a compatibilidade.
 | `kubectl` | 1.37.1 recomendado; 1.36 ou mais novo para compatibilidade |
 | Helm | 4.3.1 mais recente; charts exigem pelo menos 3.19.0 |
 | Airflow Helm chart | 1.22.0 (Airflow 3.2.2) |
-| Argo CD | 3.5.6 |
+| Argo CD Helm chart | 10.11.1 (Argo CD 3.5.6) |
 | `kube-prometheus-stack` | 92.13.1 |
 
 O chart mais recente do Airflow fixa a imagem padrão em Airflow 3.2.2; a versão
@@ -120,23 +131,12 @@ Use os guias oficiais para atualizar as ferramentas:
    chmod 600 .env
    ```
 
-2. Edite `.env`. Defina senhas locais e o branch remoto que contém
-   `airflow/dags/hello_world.py`. O arquivo `.env` é ignorado pelo Git.
+2. Edite `.env` e defina as três senhas locais. O arquivo é ignorado pelo Git.
 
-3. O Airflow usa Git Sync para obter os DAGs. Publique o branch configurado antes
-   de iniciar. Para esta cópia, o branch configurado é `K8s-00`:
-
-   ```bash
-   git add README.md .gitignore .env.example airflow monitoring scripts
-   git commit -m "Add phase-one Airflow DAG"
-   git push -u origin K8s-00
-   ```
-
-   Se estiver usando outro branch, ajuste `AIRFLOW_GIT_BRANCH` no `.env`. O
-   repositório precisa estar acessível ao cluster por HTTPS. Nesta primeira
-   versão, o script configura Git Sync sem credenciais; use um branch público.
-   O suporte a Secrets de leitura para repositórios privados fica para uma
-   melhoria posterior.
+3. Publique e integre as alterações no branch `main` antes de iniciar. O Argo CD
+   lê as aplicações e os valores desse branch. O script verifica que ele está
+   acessível. O Airflow também usa Git Sync para ler `airflow/dags` do mesmo
+   branch.
 
 4. Inicie o cluster e os componentes:
 
@@ -144,7 +144,20 @@ Use os guias oficiais para atualizar as ferramentas:
    ./scripts/start.sh
    ```
 
-5. Abra os serviços em terminais separados:
+   Em um cluster novo, o script instala o Argo CD por Helm apenas para
+   inicializar o controlador e então aplica `platform-root`. Essa aplicação
+   passa a gerenciar o próprio Argo CD, Airflow e monitoramento. Se o Argo CD já
+   estiver instalado, o bootstrap preserva a instalação para o Argo CD adotar
+   os recursos declarados.
+
+5. Para mudar configurações, edite `argocd/values.yaml`, `airflow/values.yaml`
+   ou `monitoring/values.yaml`, faça commit e publique no `main`. Para atualizar
+   um chart, altere `targetRevision` no respectivo arquivo em `argocd/apps/`.
+   Ao atualizar o chart do Argo CD, mantenha também `ARGOCD_CHART_VERSION` em
+   `scripts/start.sh` alinhado. As versões não acompanham automaticamente novos
+   releases upstream.
+
+6. Abra os serviços em terminais separados:
 
    ```bash
    kubectl -n airflow port-forward svc/airflow-api-server 8080:8080
@@ -157,12 +170,12 @@ Use os guias oficiais para atualizar as ferramentas:
    <https://localhost:8443>, Grafana em <http://localhost:3000> e Prometheus em
    <http://localhost:9090>. O certificado local do Argo CD é autoassinado.
 
-6. Entre no Airflow e no Grafana com `admin` e a senha local configurada no
-   `.env`. O script configura a mesma senha para o administrador do Argo CD. A
+7. Entre no Airflow e no Grafana com `admin` e a senha local configurada no
+   `.env`. Essa senha também é configurada para o administrador do Argo CD. A
    interface do Prometheus não tem autenticação própria nesta configuração;
    acesse-a somente pelo `port-forward` local.
 
-7. No Airflow, habilite e execute o DAG `hello_world`. Confira o log da tarefa
+8. No Airflow, habilite e execute o DAG `hello_world`. Confira o log da tarefa
    para ver a mensagem impressa.
 
 ## Desligar
@@ -185,6 +198,13 @@ automação ou confirmação explícita:
 ## Estrutura
 
 ```text
+argocd/
+  apps/
+    airflow.yaml
+    argocd.yaml
+    monitoring.yaml
+  root-app.yaml
+  values.yaml
 airflow/
   dags/hello_world.py
   values.yaml
@@ -201,5 +221,6 @@ As credenciais solicitadas são convenientes para estudo local, mas são
 compartilhadas e fracas para qualquer ambiente exposto. Não publique o cluster,
 não encaminhe essas portas para interfaces públicas, não reutilize a senha em
 outros serviços e não versione `.env`. Troque as senhas antes de qualquer uso
-fora da máquina local. O Helm também mantém os valores de instalação em Secrets
-do próprio cluster.
+fora da máquina local. O script cria Secrets do Kubernetes com os valores de
+`.env`; eles permanecem no cluster local e não são escritos nos arquivos Git.
+Proteja também o acesso ao cluster e à interface do Argo CD.

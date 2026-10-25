@@ -14,5 +14,25 @@ dags:
   mountPath: /opt/airflow/dags
   gitSync:
     enabled: true
+    repo: https://github.com/Lucasnobrepro/cloudless-data-platform.git
+    branch: main
+    ref: main
+    rev: HEAD
     subPath: airflow/dags
     period: 10s
+
+createUserJob:
+  defaultUser:
+    username: admin
+  args:
+    - bash
+    - -c
+    - >-
+      exec airflow users create -r Admin -u admin -e admin@example.com
+      -f admin -l user -p "{{ "$" }}AIRFLOW_ADMIN_PASSWORD"
+  env:
+    - name: AIRFLOW_ADMIN_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: airflow-admin
+          key: password

@@ -3,6 +3,8 @@ alertmanager:
 
 grafana:
   adminUser: admin
+  admin:
+    existingSecret: grafana-admin
   persistence:
     enabled: false
 
