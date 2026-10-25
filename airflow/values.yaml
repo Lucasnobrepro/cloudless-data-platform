@@ -1,0 +1,18 @@
+airflowVersion: "3.2.2"
+executor: LocalExecutor
+
+dagProcessor:
+  enabled: true
+
+triggerer:
+  enabled: false
+
+redis:
+  enabled: false
+
+dags:
+  mountPath: /opt/airflow/dags
+  gitSync:
+    enabled: true
+    subPath: airflow/dags
+    period: 10s

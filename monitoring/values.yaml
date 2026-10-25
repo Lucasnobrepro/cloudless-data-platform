@@ -1,0 +1,20 @@
+alertmanager:
+  enabled: false
+
+grafana:
+  adminUser: admin
+  persistence:
+    enabled: false
+
+prometheus:
+  prometheusSpec:
+    retention: 24h
+    retentionSize: 4GB
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 5Gi
