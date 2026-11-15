@@ -150,6 +150,10 @@ Use os guias oficiais para atualizar as ferramentas:
    estiver instalado, o bootstrap preserva a instalação para o Argo CD adotar
    os recursos declarados.
 
+   No Airflow, o Argo CD executa as migrações do banco durante a sincronização
+   e cria o usuário administrador após os componentes ficarem saudáveis. A
+   chave Fernet já criada é preservada nas sincronizações.
+
 5. Para mudar configurações, edite `argocd/values.yaml`, `airflow/values.yaml`
    ou `monitoring/values.yaml`, faça commit e publique no `main`. Para atualizar
    um chart, altere `targetRevision` no respectivo arquivo em `argocd/apps/`.
@@ -157,7 +161,17 @@ Use os guias oficiais para atualizar as ferramentas:
    `scripts/start.sh` alinhado. As versões não acompanham automaticamente novos
    releases upstream.
 
-6. Abra os serviços em terminais separados:
+6. Abra o dashboard e os serviços juntos em um terminal:
+
+   ```bash
+   ./forward.sh
+   ```
+
+   Aguarde as mensagens de encaminhamento e use a URL impressa para o dashboard.
+   Mantenha o terminal aberto; `Ctrl+C` encerra os acessos iniciados pelo script.
+   Se algum acesso terminar ou falhar, o script encerra os demais.
+
+   Alternativamente, abra os serviços em terminais separados:
 
    ```bash
    kubectl -n airflow port-forward svc/airflow-api-server 8080:8080
@@ -188,12 +202,16 @@ repositório permanecem.
 ./scripts/stop.sh
 ```
 
-O script pede confirmação digitando `DELETE cloudless-data-platform`. Para
-automação ou confirmação explícita:
+O script informa qual perfil será excluído e pede confirmação (`s` ou `sim`).
+Para automação ou confirmação explícita:
 
 ```bash
 ./scripts/stop.sh --yes
 ```
+
+Todos os recursos e dados dentro desse perfil são apagados. Outros perfis e o
+cache de imagens Docker são preservados. Encerre manualmente com `Ctrl+C` os
+port-forwards ou dashboards iniciados em outros terminais.
 
 ## Estrutura
 
