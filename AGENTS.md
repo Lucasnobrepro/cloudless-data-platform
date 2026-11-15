@@ -22,6 +22,16 @@ Estas regras se aplicam a todo o repositório e complementam as instrucoes dos a
 - Nomes de branch nao podem conter espacos no Git. Use o formato `K8s-01-<descricao-em-kebab-case>`, por exemplo `K8s-01-adicionar-monitoramento`.
 - Use nomes curtos e descritivos, em minusculas apos o identificador, separando palavras com hifens.
 
+## GitHub e GitHub MCP
+
+- Antes de operar no GitHub, confira o estado da branch, do worktree, do remoto e as diferencas em relacao a branch base.
+- Quando a tarefa envolver GitHub, verifique quais ferramentas estao disponiveis na sessao e prefira as ferramentas oficiais do GitHub MCP para consultar repositorios, issues e pull requests ou para criar/atualizar pull requests.
+- Use somente ferramentas GitHub MCP realmente disponibilizadas pela sessao; nao presuma nomes, capacidades ou autenticacao. Para enviar commits, use uma operacao do MCP se ela estiver disponivel; caso contrario, use `git push` para o remoto configurado.
+- Antes de criar um pull request, confira a branch base padrao do remoto, as diferencas que serao propostas e se ja existe um pull request para a branch. Nao crie pull requests vazios ou duplicados.
+- Crie ou altere recursos remotos somente quando solicitado. Ao criar um pull request, use um titulo e uma descricao baseados nas mudancas reais e retorne o link.
+- Nunca obtenha, leia, imprima ou transmita tokens e credenciais manualmente. A autenticacao deve ser tratada pela integracao GitHub MCP ou pelo mecanismo local configurado.
+- Se as ferramentas GitHub MCP ou a autenticacao necessaria nao estiverem disponiveis, informe o bloqueio; nao afirme que uma operacao remota foi concluida.
+
 ## Seguranca e operacao
 
 - Nunca inclua senhas, tokens, chaves ou outros segredos no codigo, manifests, documentacao de exemplo ou logs. Use `.env` local e Secrets conforme o projeto.
